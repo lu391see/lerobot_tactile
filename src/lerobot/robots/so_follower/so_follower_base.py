@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
+# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,22 +29,23 @@ from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnected
 
 from ..robot import Robot
 from ..utils import ensure_safe_goal_position
-from .config_so100_follower import SO100FollowerConfig
+from .so_follower_config_base import SOFollowerConfigBase
 
 logger = logging.getLogger(__name__)
 
 
-class SO100Follower(Robot):
+class SOFollowerBase(Robot):
     """
-    [SO-100 Follower Arm](https://github.com/TheRobotStudio/SO-ARM100) designed by TheRobotStudio
+    Generic SO follower base implementing common functionality for SO-100/101/10X.
+    Designed to be subclassed with a per-hardware-model `config_class` and `name`.
     """
 
-    config_class = SO100FollowerConfig
-    name = "so100_follower"
+    # `config_class` and `name` should be set by subclasses
 
-    def __init__(self, config: SO100FollowerConfig):
+    def __init__(self, config: SOFollowerConfigBase):
         super().__init__(config)
         self.config = config
+        # choose normalization mode depending on config if available
         norm_mode_body = MotorNormMode.DEGREES if config.use_degrees else MotorNormMode.RANGE_M100_100
         self.bus = FeetechMotorsBus(
             port=self.config.port,
@@ -126,6 +127,7 @@ class SO100Follower(Robot):
         input(f"Move {self} to the middle of its range of motion and press ENTER....")
         homing_offsets = self.bus.set_half_turn_homings()
 
+        # Attempt to call record_ranges_of_motion with a reduced motor set when appropriate.
         full_turn_motor = "wrist_roll"
         unknown_range_motors = [motor for motor in self.bus.motors if motor != full_turn_motor]
         print(
