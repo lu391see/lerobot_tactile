@@ -30,11 +30,13 @@ OBS_TACTILE = OBS_STR + ".tactile"
 OBS_TACTILES = OBS_TACTILE + "s"
 
 ACTION = "action"
+ACTION_PREFIX = ACTION + "."
 ACTION_TOKENS = ACTION + ".tokens"
 ACTION_TOKEN_MASK = ACTION + ".token_mask"
 REWARD = "next.reward"
 TRUNCATED = "next.truncated"
 DONE = "next.done"
+INFO = "info"
 
 ROBOTS = "robots"
 TELEOPERATORS = "teleoperators"
