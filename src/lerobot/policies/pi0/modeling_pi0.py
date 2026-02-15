@@ -42,6 +42,7 @@ else:
 from lerobot.configs.policies import PreTrainedConfig
 from lerobot.policies.pi0.configuration_pi0 import PI0Config
 from lerobot.policies.pretrained import PreTrainedPolicy, T
+from lerobot.policies.tactile_encoder import build_tactile_encoder
 from lerobot.utils.constants import (
     ACTION,
     OBS_LANGUAGE_ATTENTION_MASK,
@@ -524,6 +525,14 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         self.action_time_mlp_in = nn.Linear(2 * action_expert_config.width, action_expert_config.width)
         self.action_time_mlp_out = nn.Linear(action_expert_config.width, action_expert_config.width)
 
+        if config.use_tactile:
+            self.tactile_encoder = build_tactile_encoder(
+                encoder_type=config.tactile_encoder_type,
+                input_shape=config.tactile_input_shape,
+                feature_dim=action_expert_config.width,
+                dropout=config.tactile_dropout,
+            )
+
         # Initialize gradient checkpointing flag
         self.gradient_checkpointing_enabled = False
 
@@ -632,8 +641,8 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
 
         return embs, pad_masks, att_masks
 
-    def embed_suffix(self, state, noisy_actions, timestep):
-        """Embed state, noisy_actions, timestep to prepare for Expert Gemma processing."""
+    def embed_suffix(self, state, noisy_actions, timestep, tactile_data=None):
+        """Embed state, tactile, noisy_actions, timestep to prepare for Expert Gemma processing."""
         embs = []
         pad_masks = []
         att_masks = []
@@ -652,6 +661,22 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         state_mask = torch.ones(bsize, 1, dtype=torch.bool, device=device)
         pad_masks.append(state_mask)
         att_masks += [1]
+
+        # Embed tactile features as additional tokens after state
+        if self.config.use_tactile and tactile_data is not None:
+            for tactile_key in sorted(tactile_data.keys()):
+                t_data = tactile_data[tactile_key]
+                if t_data.dtype != torch.float32:
+                    t_data = t_data.to(torch.float32)
+
+                def tactile_encode_func(data):
+                    return self.tactile_encoder(data)
+
+                t_emb = self._apply_checkpoint(tactile_encode_func, t_data)
+                embs.append(t_emb[:, None, :])  # (B, 1, width)
+                t_mask = torch.ones(bsize, 1, dtype=torch.bool, device=device)
+                pad_masks.append(t_mask)
+                att_masks += [1]  # same causal level as state
 
         # Embed timestep using sine-cosine positional encoding
         time_emb = create_sinusoidal_pos_embedding(
@@ -696,7 +721,8 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         return embs, pad_masks, att_masks, adarms_cond
 
     def forward(
-        self, images, img_masks, lang_tokens, lang_masks, state, actions, noise=None, time=None
+        self, images, img_masks, lang_tokens, lang_masks, state, actions,
+        noise=None, time=None, tactile_data=None,
     ) -> Tensor:
         """Do a full training forward pass and compute the loss."""
         if noise is None:
@@ -712,7 +738,9 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(
             images, img_masks, lang_tokens, lang_masks
         )
-        suffix_embs, suffix_pad_masks, suffix_att_masks, adarms_cond = self.embed_suffix(state, x_t, time)
+        suffix_embs, suffix_pad_masks, suffix_att_masks, adarms_cond = self.embed_suffix(
+            state, x_t, time, tactile_data=tactile_data
+        )
 
         if (
             self.paligemma_with_expert.paligemma.language_model.layers[0].self_attn.q_proj.weight.dtype
@@ -756,7 +784,8 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
 
     @torch.no_grad()  # see openpi `sample_actions` (slightly adapted)
     def sample_actions(
-        self, images, img_masks, lang_tokens, lang_masks, state, noise=None, num_steps=None
+        self, images, img_masks, lang_tokens, lang_masks, state,
+        noise=None, num_steps=None, tactile_data=None,
     ) -> Tensor:
         """Do a full inference forward and compute the action."""
         if num_steps is None:
@@ -804,6 +833,7 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
                 past_key_values,
                 x_t,
                 expanded_time,
+                tactile_data=tactile_data,
             )
             x_t = x_t + dt * v_t
             time += dt
@@ -817,9 +847,12 @@ class PI0Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         past_key_values,
         x_t,
         timestep,
+        tactile_data=None,
     ):
         """Apply one denoising step of the noise `x_t` at a given timestep."""
-        suffix_embs, suffix_pad_masks, suffix_att_masks, adarms_cond = self.embed_suffix(state, x_t, timestep)
+        suffix_embs, suffix_pad_masks, suffix_att_masks, adarms_cond = self.embed_suffix(
+            state, x_t, timestep, tactile_data=tactile_data
+        )
 
         suffix_len = suffix_pad_masks.shape[1]
         batch_size = prefix_pad_masks.shape[0]
@@ -1134,6 +1167,16 @@ class PI0Policy(PreTrainedPolicy):
         actions = pad_vector(batch[ACTION], self.config.max_action_dim)
         return actions
 
+    def _prepare_tactile(self, batch: dict[str, Tensor]) -> dict[str, Tensor] | None:
+        """Extract tactile sensor data from the batch."""
+        if not self.config.use_tactile:
+            return None
+        tactile_data = {}
+        for key in self.config.tactile_features:
+            if key in batch:
+                tactile_data[key] = batch[key]
+        return tactile_data if tactile_data else None
+
     @torch.no_grad()
     def select_action(self, batch: dict[str, Tensor]) -> Tensor:
         """Select a single action given environment observations."""
@@ -1156,9 +1199,12 @@ class PI0Policy(PreTrainedPolicy):
         images, img_masks = self._preprocess_images(batch)
         lang_tokens, lang_masks = batch[f"{OBS_LANGUAGE_TOKENS}"], batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
         state = self.prepare_state(batch)
+        tactile_data = self._prepare_tactile(batch)
 
         # Sample actions using the model
-        actions = self.model.sample_actions(images, img_masks, lang_tokens, lang_masks, state)
+        actions = self.model.sample_actions(
+            images, img_masks, lang_tokens, lang_masks, state, tactile_data=tactile_data
+        )
 
         # Unpad actions to actual action dimension
         original_action_dim = self.config.output_features[ACTION].shape[0]
@@ -1174,9 +1220,12 @@ class PI0Policy(PreTrainedPolicy):
         lang_tokens, lang_masks = batch[f"{OBS_LANGUAGE_TOKENS}"], batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
         state = self.prepare_state(batch)
         actions = self.prepare_action(batch)
+        tactile_data = self._prepare_tactile(batch)
 
         # Compute loss
-        losses = self.model.forward(images, img_masks, lang_tokens, lang_masks, state, actions)
+        losses = self.model.forward(
+            images, img_masks, lang_tokens, lang_masks, state, actions, tactile_data=tactile_data
+        )
 
         # Truncate losses to actual action dimensions
         original_action_dim = self.config.output_features[ACTION].shape[0]

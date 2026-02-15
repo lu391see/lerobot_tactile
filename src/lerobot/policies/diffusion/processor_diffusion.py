@@ -29,6 +29,10 @@ from lerobot.processor import (
     UnnormalizerProcessorStep,
 )
 from lerobot.processor.converters import policy_action_to_transition, transition_to_policy_action
+from lerobot.processor.tactile_processor import (
+    TactileNormalizationProcessorStep,
+    TactileValidationProcessorStep,
+)
 from lerobot.utils.constants import POLICY_POSTPROCESSOR_DEFAULT_NAME, POLICY_PREPROCESSOR_DEFAULT_NAME
 
 
@@ -64,6 +68,15 @@ def make_diffusion_pre_post_processors(
 
     input_steps = [
         RenameObservationsProcessorStep(rename_map={}),
+    ]
+
+    if config.use_tactile:
+        input_steps.extend([
+            TactileValidationProcessorStep(expected_shape=config.tactile_input_shape),
+            TactileNormalizationProcessorStep(),
+        ])
+
+    input_steps.extend([
         AddBatchDimensionProcessorStep(),
         DeviceProcessorStep(device=config.device),
         NormalizerProcessorStep(
@@ -71,7 +84,7 @@ def make_diffusion_pre_post_processors(
             norm_map=config.normalization_mapping,
             stats=dataset_stats,
         ),
-    ]
+    ])
     output_steps = [
         UnnormalizerProcessorStep(
             features=config.output_features, norm_map=config.normalization_mapping, stats=dataset_stats

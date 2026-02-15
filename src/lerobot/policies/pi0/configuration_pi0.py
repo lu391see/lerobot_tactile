@@ -52,12 +52,19 @@ class PI0Config(PreTrainedConfig):
     # Add empty images. Used to add empty cameras when no image features are present.
     empty_cameras: int = 0
 
+    # Tactile encoder
+    use_tactile: bool = False
+    tactile_encoder_type: str = "cnn"  # "cnn" or "attention"
+    tactile_input_shape: tuple[int, int] = (16, 32)
+    tactile_dropout: float = 0.3
+
     # Normalization
     normalization_mapping: dict[str, NormalizationMode] = field(
         default_factory=lambda: {
             "VISUAL": NormalizationMode.IDENTITY,
             "STATE": NormalizationMode.MEAN_STD,
             "ACTION": NormalizationMode.MEAN_STD,
+            "TACTILE": NormalizationMode.MEAN_STD,
         }
     )
 
@@ -100,6 +107,11 @@ class PI0Config(PreTrainedConfig):
 
         if self.dtype not in ["bfloat16", "float32"]:
             raise ValueError(f"Invalid dtype: {self.dtype}")
+
+        if self.use_tactile and self.tactile_encoder_type not in ["cnn", "attention"]:
+            raise ValueError(
+                f"Invalid tactile encoder type: {self.tactile_encoder_type}. Expected 'cnn' or 'attention'."
+            )
 
     def validate_features(self) -> None:
         """Validate and set up input/output features."""

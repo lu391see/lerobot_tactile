@@ -113,6 +113,7 @@ class DiffusionConfig(PreTrainedConfig):
             "VISUAL": NormalizationMode.MEAN_STD,
             "STATE": NormalizationMode.MIN_MAX,
             "ACTION": NormalizationMode.MIN_MAX,
+            "TACTILE": NormalizationMode.MEAN_STD,
         }
     )
 
@@ -129,6 +130,12 @@ class DiffusionConfig(PreTrainedConfig):
     use_group_norm: bool = True
     spatial_softmax_num_keypoints: int = 32
     use_separate_rgb_encoder_per_camera: bool = False
+    # Tactile encoder.
+    use_tactile: bool = False
+    tactile_encoder_type: str = "cnn"  # "cnn" or "attention"
+    tactile_input_shape: tuple[int, int] = (16, 32)
+    tactile_dropout: float = 0.3
+    tactile_feature_dim: int = 64
     # Unet.
     down_dims: tuple[int, ...] = (512, 1024, 2048)
     kernel_size: int = 5
@@ -180,6 +187,11 @@ class DiffusionConfig(PreTrainedConfig):
                 f"Got {self.noise_scheduler_type}."
             )
 
+        if self.use_tactile and self.tactile_encoder_type not in ["cnn", "attention"]:
+            raise ValueError(
+                f"Invalid tactile encoder type: {self.tactile_encoder_type}. Expected 'cnn' or 'attention'."
+            )
+
         # Check that the horizon size and U-Net downsampling is compatible.
         # U-Net downsamples by 2 with each stage.
         downsampling_factor = 2 ** len(self.down_dims)
@@ -204,8 +216,10 @@ class DiffusionConfig(PreTrainedConfig):
         )
 
     def validate_features(self) -> None:
-        if len(self.image_features) == 0 and self.env_state_feature is None:
-            raise ValueError("You must provide at least one image or the environment state among the inputs.")
+        if len(self.image_features) == 0 and self.env_state_feature is None and len(self.tactile_features) == 0:
+            raise ValueError(
+                "You must provide at least one image, environment state, or tactile sensor among the inputs."
+            )
 
         if self.crop_shape is not None:
             for key, image_ft in self.image_features.items():

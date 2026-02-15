@@ -34,6 +34,10 @@ from lerobot.processor import (
     UnnormalizerProcessorStep,
 )
 from lerobot.processor.converters import policy_action_to_transition, transition_to_policy_action
+from lerobot.processor.tactile_processor import (
+    TactileNormalizationProcessorStep,
+    TactileValidationProcessorStep,
+)
 from lerobot.utils.constants import POLICY_POSTPROCESSOR_DEFAULT_NAME, POLICY_PREPROCESSOR_DEFAULT_NAME
 
 
@@ -129,6 +133,15 @@ def make_pi0_pre_post_processors(
     # Add remaining processors
     input_steps: list[ProcessorStep] = [
         RenameObservationsProcessorStep(rename_map={}),  # To mimic the same processor as pretrained one
+    ]
+
+    if config.use_tactile:
+        input_steps.extend([
+            TactileValidationProcessorStep(expected_shape=config.tactile_input_shape),
+            TactileNormalizationProcessorStep(),
+        ])
+
+    input_steps.extend([
         AddBatchDimensionProcessorStep(),
         Pi0NewLineProcessor(),  # Add newlines before tokenization for PaliGemma
         TokenizerProcessorStep(
@@ -143,7 +156,7 @@ def make_pi0_pre_post_processors(
             norm_map=config.normalization_mapping,
             stats=dataset_stats,
         ),
-    ]
+    ])
 
     output_steps: list[ProcessorStep] = [
         UnnormalizerProcessorStep(

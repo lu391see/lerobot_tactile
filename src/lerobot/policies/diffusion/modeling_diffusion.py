@@ -35,6 +35,7 @@ from torch import Tensor, nn
 
 from lerobot.policies.diffusion.configuration_diffusion import DiffusionConfig
 from lerobot.policies.pretrained import PreTrainedPolicy
+from lerobot.policies.tactile_encoder import build_tactile_encoder
 from lerobot.policies.utils import (
     get_device_from_parameters,
     get_dtype_from_parameters,
@@ -88,6 +89,9 @@ class DiffusionPolicy(PreTrainedPolicy):
             self._queues[OBS_IMAGES] = deque(maxlen=self.config.n_obs_steps)
         if self.config.env_state_feature:
             self._queues[OBS_ENV_STATE] = deque(maxlen=self.config.n_obs_steps)
+        if self.config.tactile_features:
+            for tactile_key in self.config.tactile_features:
+                self._queues[tactile_key] = deque(maxlen=self.config.n_obs_steps)
 
     @torch.no_grad()
     def predict_action_chunk(self, batch: dict[str, Tensor], noise: Tensor | None = None) -> Tensor:
@@ -179,6 +183,15 @@ class DiffusionModel(nn.Module):
         if self.config.env_state_feature:
             global_cond_dim += self.config.env_state_feature.shape[0]
 
+        if self.config.tactile_features:
+            self.tactile_encoder = build_tactile_encoder(
+                encoder_type=config.tactile_encoder_type,
+                input_shape=config.tactile_input_shape,
+                feature_dim=config.tactile_feature_dim,
+                dropout=config.tactile_dropout,
+            )
+            global_cond_dim += config.tactile_feature_dim * len(self.config.tactile_features)
+
         self.unet = DiffusionConditionalUnet1d(config, global_cond_dim=global_cond_dim * config.n_obs_steps)
 
         self.noise_scheduler = _make_noise_scheduler(
@@ -269,6 +282,15 @@ class DiffusionModel(nn.Module):
         if self.config.env_state_feature:
             global_cond_feats.append(batch[OBS_ENV_STATE])
 
+        if self.config.tactile_features:
+            for tactile_key in self.config.tactile_features:
+                if tactile_key in batch:
+                    # batch[tactile_key]: (B, n_obs_steps, H, W)
+                    t_data = einops.rearrange(batch[tactile_key], "b s ... -> (b s) ...")
+                    t_enc = self.tactile_encoder(t_data)
+                    t_enc = einops.rearrange(t_enc, "(b s) d -> b s d", b=batch_size, s=n_obs_steps)
+                    global_cond_feats.append(t_enc)
+
         # Concatenate features then flatten to (B, global_cond_dim).
         return torch.cat(global_cond_feats, dim=-1).flatten(start_dim=1)
 
@@ -315,7 +337,8 @@ class DiffusionModel(nn.Module):
         """
         # Input validation.
         assert set(batch).issuperset({OBS_STATE, ACTION, "action_is_pad"})
-        assert OBS_IMAGES in batch or OBS_ENV_STATE in batch
+        has_tactile = any(k in batch for k in (self.config.tactile_features or {}))
+        assert OBS_IMAGES in batch or OBS_ENV_STATE in batch or has_tactile
         n_obs_steps = batch[OBS_STATE].shape[1]
         horizon = batch[ACTION].shape[1]
         assert horizon == self.config.horizon
