@@ -20,7 +20,7 @@ from typing import Any, Optional
 import numpy as np
 
 from lerobot.configs.types import FeatureType, PolicyFeature
-from lerobot.robots.so100_follower.so100_follower import SO100Follower
+from lerobot.robots.so_follower.so_follower import SO100Follower
 from lerobot.sensors.tactile_sensor import TactileSensor
 from lerobot.utils.constants import OBS_TACTILE, OBS_TACTILES
 

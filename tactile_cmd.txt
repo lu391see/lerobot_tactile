@@ -21,6 +21,7 @@ lerobot-record \
 lerobot-train \
   --dataset.repo_id=Tna001/tactile1 \
   --policy.type=act \
+  --policy.use_tactile=true \
   --output_dir=outputs/train/tactile_act_policy \
   --job_name=tactile_act \
   --policy.device=cuda \
