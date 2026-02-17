@@ -28,7 +28,7 @@ from scipy.ndimage import gaussian_filter
 
 class TactileSensor:
     """Interface for 16x32 tactile sensor array via USB serial communication"""
-    
+
     def __init__(
         self,
         port: str = "/dev/ttyUSB0",
@@ -94,7 +94,7 @@ class TactileSensor:
         # Initialize visualization if enabled
         if self.enable_visualization:
             self._init_visualization()
-    
+
     def connect(self) -> bool:
         """Connect to tactile sensor"""
         try:
@@ -109,18 +109,18 @@ class TactileSensor:
                 rtscts=False,
                 dsrdtr=False,
             )
-            
+
             # Wait for connection to stabilize
             time.sleep(0.1)
-            
+
             # Clear any existing data in buffer
             self.serial_conn.flushInput()
             self.serial_conn.flushOutput()
-            
+
             self.is_connected = True
             logging.info(f"Connected to tactile sensor on {self.port}")
             return True
-            
+
         except serial.SerialException as e:
             logging.error(f"Failed to connect to tactile sensor on {self.port}: {e}")
             self.is_connected = False
@@ -129,7 +129,7 @@ class TactileSensor:
             logging.error(f"Unexpected error connecting to tactile sensor: {e}")
             self.is_connected = False
             return False
-    
+
     def disconnect(self):
         """Disconnect from tactile sensor"""
         self.stop_continuous_read()
@@ -139,7 +139,7 @@ class TactileSensor:
             self.serial_conn.close()
             self.is_connected = False
             logging.info("Disconnected from tactile sensor")
-    
+
     def read_raw_data(self) -> Optional[np.ndarray]:
         """Read raw data from sensor (ASCII text format, line by line)"""
         if not self.is_connected or not self.serial_conn:
@@ -154,7 +154,7 @@ class TactileSensor:
             while attempts < max_attempts:
                 if self.serial_conn.in_waiting > 0:
                     try:
-                        line = self.serial_conn.readline().decode('utf-8').strip()
+                        line = self.serial_conn.readline().decode("utf-8").strip()
                     except Exception:
                         line = ""
 
@@ -190,7 +190,7 @@ class TactileSensor:
         except Exception as e:
             logging.error(f"Unexpected error reading sensor data: {e}")
             return None
-    
+
     def calibrate(self, num_samples: int = 30) -> bool:
         """Calibrate sensor by taking baseline reading using median"""
         if not self.is_connected:
@@ -220,7 +220,7 @@ class TactileSensor:
 
         logging.info("Tactile sensor calibration completed")
         return True
-    
+
     def read_data(self) -> Optional[np.ndarray]:
         """Read processed tactile data (raw - baseline)"""
         raw_data = self.read_raw_data()
@@ -240,27 +240,27 @@ class TactileSensor:
             self.update_visualization(processed_data)
 
         return processed_data
-    
+
     def start_continuous_read(self):
         """Start continuous data reading in background thread"""
         if self._data_thread and self._data_thread.is_alive():
             logging.warning("Continuous reading already started")
             return
-        
+
         self._stop_event.clear()
         self._data_thread = threading.Thread(target=self._continuous_read_loop)
         self._data_thread.daemon = True
         self._data_thread.start()
-        
+
         logging.info("Started continuous tactile data reading")
-    
+
     def stop_continuous_read(self):
         """Stop continuous data reading"""
         if self._data_thread and self._data_thread.is_alive():
             self._stop_event.set()
             self._data_thread.join(timeout=1.0)
             logging.info("Stopped continuous tactile data reading")
-    
+
     def _continuous_read_loop(self):
         """Background loop for continuous data reading"""
         while not self._stop_event.is_set():
@@ -272,7 +272,7 @@ class TactileSensor:
                 if self.enable_visualization:
                     self.update_visualization(data)
             time.sleep(0.01)  # 100 Hz reading rate
-    
+
     def get_latest_data(self) -> Optional[np.ndarray]:
         """Get latest data from continuous reading"""
         with self._data_lock:
@@ -392,10 +392,10 @@ class TactileSensor:
 
     def __enter__(self):
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.disconnect()
-    
+
     def __del__(self):
         """Cleanup on deletion"""
         try:
