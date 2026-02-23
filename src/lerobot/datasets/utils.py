@@ -646,13 +646,13 @@ def hw_to_dataset_features(
             "names": list(joint_fts),
         }
 
-    # Handle tactile features as separate 2D arrays
+    # Handle tactile features as separate 3D arrays
     for key, ftype in tactile_fts.items():
         # Key is simple (e.g., "tactile"), prefix is added here
         features[f"{prefix}.{key}"] = {
             "dtype": "float32",
             "shape": ftype.shape,
-            "names": ["height", "width"],
+            "names": ["xyz", "height", "width"],
         }
 
     for key, shape in cam_fts.items():
@@ -689,8 +689,8 @@ def build_dataset_frame(
             continue
         elif ft["dtype"] == "float32" and len(ft["shape"]) == 1:
             frame[key] = np.array([values[name] for name in ft["names"]], dtype=np.float32)
-        elif ft["dtype"] == "float32" and len(ft["shape"]) == 2:
-            # Handle 2D tactile data
+        elif ft["dtype"] == "float32" and len(ft["shape"]) == 3:
+            # Handle 3D tactile data
             tactile_key = key.removeprefix(f"{prefix}.")
             if tactile_key in values:
                 frame[key] = values[tactile_key].astype(np.float32)
@@ -1146,13 +1146,13 @@ def validate_feature_string(name: str, value: str) -> str:
     return ""
 
 
-def validate_feature_tactile(name: str, value: np.ndarray, expected_shape: tuple[int, int]) -> str:
+def validate_feature_tactile(name: str, value: np.ndarray, expected_shape: tuple[int, int, int]) -> str:
     """Validate a tactile sensor feature.
 
     Args:
         name (str): The name of the feature.
         value (np.ndarray): The tactile data array to validate.
-        expected_shape (tuple[int, int]): Expected shape of tactile array (H, W).
+        expected_shape (tuple[int, int, int]): Expected shape of tactile array (C, H, W).
 
     Returns:
         str: An error message if validation fails, otherwise an empty string.
@@ -1168,14 +1168,14 @@ def validate_feature_tactile(name: str, value: np.ndarray, expected_shape: tuple
         error_message += f"The feature '{name}' has unsupported dtype '{value.dtype}'. Expected numeric type.\n"
     
     # Check shape
-    if value.ndim != 2:
-        error_message += f"The feature '{name}' is expected to have 2 dimensions (H, W), but has {value.ndim} dimensions.\n"
+    if value.ndim != 3:
+        error_message += f"The feature '{name}' is expected to have 3 dimensions (C, H, W), but has {value.ndim} dimensions.\n"
     elif value.shape != expected_shape:
         error_message += f"The feature '{name}' has shape {value.shape}, but expected {expected_shape}.\n"
     
-    # Check value range (tactile data should be non-negative)
-    if value.min() < 0:
-        error_message += f"The feature '{name}' contains negative values. Tactile data should be non-negative.\n"
+    # Check value range
+    if value.min() < -4 or value.max() > 4:
+        error_message += f"The feature '{name}' contains values outside the expected range [-4, 4].\n"
     
     return error_message
 
