@@ -121,7 +121,7 @@ class ACTConfig(PreTrainedConfig):
     temporal_ensemble_coeff: float | None = None
 
     # Tactile sensor configuration
-    use_tactile: bool = True
+    use_tactile: bool = False
     tactile_encoder_type: str = "cnn"  # choices: ["cnn", "attention"]
     tactile_input_shape: tuple[int, int] = (16, 32)
     tactile_dropout: float = 0.3
