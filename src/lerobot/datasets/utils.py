@@ -1078,8 +1078,6 @@ def validate_feature_dtype_and_shape(
         return validate_feature_image_or_video(name, expected_shape, value)
     elif expected_dtype == "string":
         return validate_feature_string(name, value)
-    elif expected_dtype == "tactile":
-        return validate_feature_tactile(name, value, tuple(expected_shape))
     else:
         raise NotImplementedError(f"The feature dtype '{expected_dtype}' is not implemented yet.")
 
