@@ -37,7 +37,7 @@ import torch
 from tqdm import tqdm
 
 from lerobot.datasets.aggregate import aggregate_datasets
-from lerobot.datasets.compute_stats import aggregate_stats
+from lerobot.datasets.compute_stats import DEFAULT_QUANTILES, aggregate_stats, get_feature_stats
 from lerobot.datasets.lerobot_dataset import LeRobotDataset, LeRobotDatasetMetadata
 from lerobot.datasets.utils import (
     DATA_DIR,
@@ -53,7 +53,7 @@ from lerobot.datasets.utils import (
     write_tasks,
 )
 from lerobot.datasets.video_utils import encode_video_frames, get_video_info
-from lerobot.utils.constants import HF_LEROBOT_HOME, OBS_IMAGE
+from lerobot.utils.constants import HF_LEROBOT_HOME, OBS_IMAGE, OBS_TACTILE
 
 
 def _load_episode_with_stats(src_dataset: LeRobotDataset, episode_idx: int) -> dict:
@@ -440,6 +440,161 @@ def remove_feature(
         output_dir=output_dir,
         repo_id=repo_id,
     )
+
+
+def recompute_stats(
+    dataset: LeRobotDataset,
+    episode_indices: list[int] | None = None,
+    *,
+    quantile_list: list[float] | None = None,
+    write_to_disk: bool = True,
+) -> dict[str, dict]:
+    """Recompute dataset statistics using DuckDB parquet scans.
+
+    This method avoids per-sample dataset decoding and is significantly faster on
+    large datasets. Non-visual features are recomputed from raw parquet columns.
+
+    - Tactile features: channel-wise reduction over (T, C, H, W), matching image behavior.
+    - Vector/numeric features: reduction over time axis (T).
+    - Image/video features: preserved from existing stats when available (recomputing
+      these from encoded media would require decoding outside DuckDB).
+
+    Args:
+        dataset: Source dataset.
+        episode_indices: Optional subset of episodes to recompute from. Defaults to all.
+        quantile_list: Optional quantiles to compute. Defaults to DEFAULT_QUANTILES.
+        write_to_disk: Whether to write results to `meta/stats.json` and update
+            `dataset.meta.stats`.
+
+    Returns:
+        Aggregated statistics dictionary (filtered to dataset features).
+    """
+    try:
+        import duckdb
+    except ImportError as exc:
+        raise ImportError(
+            "DuckDB is required for fast stats recomputation. Install it with `pip install duckdb`."
+        ) from exc
+
+    def _quote_identifier(identifier: str) -> str:
+        return '"' + identifier.replace('"', '""') + '"'
+
+    def _to_stacked_numpy(values: list) -> np.ndarray:
+        if not values:
+            return np.array([])
+
+        first = values[0]
+        if isinstance(first, np.ndarray):
+            return np.stack([np.asarray(v) for v in values])
+        if isinstance(first, (list, tuple)):
+            return np.stack([np.asarray(v) for v in values])
+        return np.asarray(values)
+
+    if quantile_list is None:
+        quantile_list = DEFAULT_QUANTILES
+
+    if dataset.meta.episodes is None:
+        dataset.meta.episodes = load_episodes(dataset.meta.root)
+
+    if episode_indices is None:
+        episode_indices = list(range(dataset.meta.total_episodes))
+
+    if not episode_indices:
+        raise ValueError("No episodes provided for statistics recomputation.")
+
+    invalid = set(episode_indices) - set(range(dataset.meta.total_episodes))
+    if invalid:
+        raise ValueError(f"Invalid episode indices: {sorted(invalid)}")
+
+    is_full_recompute = len(episode_indices) == dataset.meta.total_episodes
+
+    parquet_glob = str(dataset.root / DATA_DIR / "*/*.parquet")
+    con = duckdb.connect(database=":memory:")
+    try:
+        con.register("selected_eps", pd.DataFrame({"episode_index": episode_indices}))
+        con.execute(
+            """
+            CREATE TEMP TABLE selected_rows AS
+            SELECT d.*
+            FROM read_parquet(?, union_by_name=true) AS d
+            INNER JOIN selected_eps AS s
+            USING (episode_index)
+            """,
+            [parquet_glob],
+        )
+
+        selected_count = con.execute("SELECT COUNT(*) FROM selected_rows").fetchone()[0]
+        if selected_count == 0:
+            raise ValueError("No rows found for the requested episode indices.")
+
+        available_columns = {row[0] for row in con.execute("DESCRIBE selected_rows").fetchall()}
+
+        recomputed_stats: dict[str, dict] = {}
+        for key, feature_info in tqdm(dataset.meta.features.items(), desc="Recomputing stats"):
+            feature_dtype = feature_info["dtype"]
+            if feature_dtype == "string":
+                continue
+
+            if feature_dtype in ["image", "video"]:
+                if dataset.meta.stats and key in dataset.meta.stats:
+                    if not is_full_recompute:
+                        logging.warning(
+                            f"Preserving existing visual stats for '{key}' while recomputing a subset of episodes."
+                        )
+                    recomputed_stats[key] = dataset.meta.stats[key]
+                else:
+                    raise ValueError(
+                        f"Visual feature '{key}' has no existing stats to preserve. "
+                        "DuckDB fast recomputation does not decode image/video media."
+                    )
+                continue
+
+            if key not in available_columns:
+                logging.warning(f"Skipping feature '{key}' because it is not present in parquet data.")
+                continue
+
+            query = f"SELECT {_quote_identifier(key)} AS value FROM selected_rows"
+            values = con.execute(query).fetch_arrow_table().column("value").to_pylist()
+            if not values:
+                continue
+
+            data = _to_stacked_numpy(values)
+
+            if key.startswith(OBS_TACTILE):
+                if data.ndim != 4:
+                    raise ValueError(
+                        f"Tactile feature '{key}' must have shape (T,C,H,W), got {data.shape}."
+                    )
+                axes_to_reduce = (0, 2, 3)
+                keepdims = True
+            else:
+                axes_to_reduce = 0
+                keepdims = data.ndim == 1
+
+            feature_stats = get_feature_stats(
+                data,
+                axis=axes_to_reduce,
+                keepdims=keepdims,
+                quantile_list=quantile_list,
+            )
+
+            if key.startswith(OBS_TACTILE):
+                feature_stats = {
+                    stat: value if stat == "count" else np.squeeze(value, axis=0)
+                    for stat, value in feature_stats.items()
+                }
+
+            recomputed_stats[key] = feature_stats
+
+        filtered_stats = {k: v for k, v in recomputed_stats.items() if k in dataset.meta.features}
+    finally:
+        con.close()
+
+    if write_to_disk:
+        write_stats(filtered_stats, dataset.meta.root)
+        dataset.meta.stats = filtered_stats
+
+    return filtered_stats
 
 
 def _fractions_to_episode_indices(

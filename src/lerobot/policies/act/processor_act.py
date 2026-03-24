@@ -62,12 +62,10 @@ def make_act_pre_post_processors(
     ]
     
     # Add tactile processing steps if tactile is enabled
-    # Note: TactileTemporalFilterProcessorStep is NOT used during training
-    # because batches are shuffled from different episodes (no temporal continuity)
     if config.use_tactile:
         input_steps.extend([
             TactileValidationProcessorStep(expected_shape=config.tactile_input_shape),
-            TactileNormalizationProcessorStep(),
+            TactileNormalizationProcessorStep(force_max=0.4),
         ])
     
     # Add common processing steps

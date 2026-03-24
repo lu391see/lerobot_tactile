@@ -35,7 +35,6 @@ from torchvision.ops.misc import FrozenBatchNorm2d
 
 from lerobot.policies.act.configuration_act import ACTConfig
 from lerobot.policies.pretrained import PreTrainedPolicy
-from lerobot.policies.tactile.encoder import TactileTokenEncoder
 from lerobot.utils.constants import ACTION, OBS_ENV_STATE, OBS_IMAGES, OBS_STATE, OBS_TACTILE
 
 
@@ -332,15 +331,9 @@ class ACT(nn.Module):
             # Note: The forward method of this returns a dict: {"feature_map": output}.
             self.backbone = IntermediateLayerGetter(backbone_model, return_layers={"layer4": "feature_map"})
 
-        # Tactile encoder for tactile feature extraction.
-        if self.config.use_tactile:
-            self.tactile_encoder = TactileTokenEncoder(
-                encoder_type=config.tactile_encoder_type,
-                input_shape=config.tactile_input_shape,
-                feature_dim=config.dim_model,
-                n_tokens=config.n_tactile_tokens,
-                dropout=config.tactile_dropout,
-            )
+        # # Tactile encoder for tactile feature extraction.
+        if getattr(self.config, "use_tactile", False):
+            self.tactile_backbone = nn.Conv2d(3, config.dim_model, kernel_size=4, stride=4)
 
         # Transformer (acts as VAE decoder when training with the variational objective).
         self.encoder = ACTEncoder(config)
@@ -362,18 +355,23 @@ class ACT(nn.Module):
             self.encoder_img_feat_input_proj = nn.Conv2d(
                 backbone_model.fc.in_features, config.dim_model, kernel_size=1
             )
+
+        if getattr(self.config, "use_tactile", False):
+            assert self.config.tactile_features is not None
+            self.tactile_sensor_ids = nn.ParameterList(
+                [nn.Parameter(torch.zeros(1, config.dim_model, 1, 1)) for _ in self.config.tactile_features]
+            )
         # Transformer encoder positional embeddings.
         n_1d_tokens = 1  # for the latent
         if self.config.robot_state_feature:
             n_1d_tokens += 1
         if self.config.env_state_feature:
             n_1d_tokens += 1
-        if self.config.use_tactile:
-            n_sensors = len(self.config.tactile_features) if self.config.tactile_features else 1
-            n_1d_tokens += n_sensors * config.n_tactile_tokens
         self.encoder_1d_feature_pos_embed = nn.Embedding(n_1d_tokens, config.dim_model)
         if self.config.image_features:
             self.encoder_cam_feat_pos_embed = ACTSinusoidalPositionEmbedding2d(config.dim_model // 2)
+        if getattr(self.config, "use_tactile", False):
+            self.encoder_tactile_feat_pos_embed = ACTSinusoidalPositionEmbedding2d(config.dim_model // 2)
 
         # Transformer decoder.
         # Learnable positional embedding for the transformer's decoder (in the style of DETR object queries).
@@ -418,7 +416,7 @@ class ACT(nn.Module):
             batch_size = batch[OBS_IMAGES][0].shape[0]
         elif OBS_ENV_STATE in batch:
             batch_size = batch[OBS_ENV_STATE].shape[0]
-        elif self.config.tactile_features[0] in batch:
+        elif getattr(self.config, "use_tactile", False) and self.config.tactile_features[0] in batch:
             batch_size = batch[self.config.tactile_features[0]].shape[0]
         else:
             raise ValueError("Batch must contain at least one of: OBS_IMAGES, OBS_ENV_STATE, or tactile_features")
@@ -486,15 +484,6 @@ class ACT(nn.Module):
         # Environment state token.
         if self.config.env_state_feature:
             encoder_in_tokens.append(self.encoder_env_state_input_proj(batch[OBS_ENV_STATE]))
-        # Tactile token(s). Each sensor produces n_tactile_tokens tokens.
-        # Multi-sensor: iterate over tactile_features keys.
-        # Single sensor: use OBS_TACTILE directly.
-        if self.config.use_tactile:
-            tactile_keys = self.config.tactile_features if self.config.tactile_features else [OBS_TACTILE]
-            for tactile_key in tactile_keys:
-                tactile_tokens = self.tactile_encoder(batch[tactile_key])  # (B, n_tokens, dim_model)
-                for i in range(self.config.n_tactile_tokens):
-                    encoder_in_tokens.append(tactile_tokens[:, i])  # (B, dim_model)
 
         if self.config.image_features:
             # For a list of images, the H and W may vary but H*W is constant.
@@ -513,6 +502,24 @@ class ACT(nn.Module):
                 # Convert to list to extend properly
                 encoder_in_tokens.extend(list(cam_features))
                 encoder_in_pos_embed.extend(list(cam_pos_embed))
+        
+        if getattr(self.config, "use_tactile", False):
+            for i, tactile_key in enumerate(self.config.tactile_features):
+                if tactile_key not in batch:
+                    raise ValueError(f"Tactile key {tactile_key} not found in batch.")
+                # Treat 40x40 fm like image feature map
+                tac_features = self.tactile_backbone(batch[tactile_key])  # (B, D, H', W')
+                tactile_pos_embed = self.encoder_tactile_feat_pos_embed(tac_features).to(
+                    dtype=tac_features.dtype
+                )
+                # add unique sensor id to help model distinguish fingers
+                tac_features = tac_features + self.tactile_sensor_ids[i]
+                # Rearrange features to (sequence, batch, dim).
+                tac_features = einops.rearrange(tac_features, "b c h w -> (h w) b c")
+                tactile_pos_embed = einops.rearrange(tactile_pos_embed, "b c h w -> (h w) b c")
+
+                encoder_in_tokens.extend(list(tac_features))
+                encoder_in_pos_embed.extend(list(tactile_pos_embed))
 
         # Stack all tokens along the sequence dimension.
         encoder_in_tokens = torch.stack(encoder_in_tokens, axis=0)

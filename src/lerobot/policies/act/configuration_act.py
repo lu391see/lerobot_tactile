@@ -91,7 +91,7 @@ class ACTConfig(PreTrainedConfig):
             "VISUAL": NormalizationMode.MEAN_STD,
             "STATE": NormalizationMode.MEAN_STD,
             "ACTION": NormalizationMode.MEAN_STD,
-            "TACTILE": NormalizationMode.MEAN_STD,
+            "TACTILE": NormalizationMode.IDENTITY,
         }
     )
 
@@ -122,16 +122,9 @@ class ACTConfig(PreTrainedConfig):
 
     # Tactile sensor configuration
     use_tactile: bool = False
-    tactile_encoder_type: str = "cnn"  # choices: ["cnn", "attention"]
-    tactile_input_shape: tuple[int, int] = (16, 32)
-    tactile_dropout: float = 0.3
-    # Named tactile sensor keys when using multiple sensors.
-    # e.g., ["observation.tactile.left", "observation.tactile.right"]
-    # Leave as None for single sensor mode (uses "observation.tactile" key).
+    tactile_input_shape: tuple[int, int, int] = (3, 40, 40)
+    # Named tactile feature keys, e.g. ["observation.tactile.index", "observation.tactile.thumb"].
     tactile_features: list[str] | None = None
-    # Number of transformer tokens each tactile sensor is encoded into.
-    # 1 = single token per sensor (default); >1 = richer representation.
-    n_tactile_tokens: int = 1
 
     # Training and loss computation.
     dropout: float = 0.1
@@ -164,10 +157,14 @@ class ACTConfig(PreTrainedConfig):
             raise ValueError(
                 f"Multiple observation steps not handled yet. Got `nobs_steps={self.n_obs_steps}`"
             )
-        if self.use_tactile and self.tactile_encoder_type not in ["cnn", "attention"]:
+        if self.use_tactile and (
+            len(self.tactile_input_shape) != 3
+            or self.tactile_input_shape[0] != 3
+            or any(dim <= 0 for dim in self.tactile_input_shape)
+        ):
             raise ValueError(
-                f"Invalid tactile encoder type. Got {self.tactile_encoder_type}, "
-                f"expected one of ['cnn', 'attention']"
+                "`tactile_input_shape` must be (3, H, W) with positive spatial dimensions. "
+                f"Got {self.tactile_input_shape}."
             )
 
     def get_optimizer_preset(self) -> AdamWConfig:

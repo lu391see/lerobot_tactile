@@ -25,18 +25,14 @@ from lerobot.utils.constants import OBS_TACTILE
 
 
 class TactileNormalizationProcessorStep(ObservationProcessorStep):
-    """Normalize tactile sensor data with thresholding and noise filtering"""
+    """Normalize 3-axis tactile sensor data (X, Y, Z forces)"""
 
-    def __init__(self, threshold=30, noise_scale=50, gaussian_sigma=0.1):
+    def __init__(self, force_max=0.4):
         """
         Args:
-            threshold: Minimum tactile value threshold
-            noise_scale: Scale for noise normalization
-            gaussian_sigma: Gaussian noise standard deviation for data augmentation
+            force_max: Expected maximum force magnitude in Newtons to scale data to [-1, 1]
         """
-        self.threshold = threshold
-        self.noise_scale = noise_scale
-        self.gaussian_sigma = gaussian_sigma
+        self.force_max = force_max
 
     def observation(self, obs: dict[str, Any]) -> dict[str, Any]:
         for key in list(obs.keys()):
@@ -48,14 +44,8 @@ class TactileNormalizationProcessorStep(ObservationProcessorStep):
             if isinstance(tactile_data, np.ndarray):
                 tactile_data = torch.from_numpy(tactile_data).float()
 
-            # Apply threshold
-            tactile_data = torch.clamp(tactile_data - self.threshold, min=0)
-
-            # Normalize by noise scale
-            tactile_data = tactile_data / self.noise_scale
-
-            # Ensure data is in range [0, 1]
-            tactile_data = torch.clamp(tactile_data, 0, 1)
+            # Clamp between -1 and 1 to prevent OOD spikes from blowing up the Transformer
+            tactile_data = torch.clamp(tactile_data, min=-self.force_max, max=self.force_max) / self.force_max
 
             obs[key] = tactile_data
 
@@ -69,12 +59,13 @@ class TactileNormalizationProcessorStep(ObservationProcessorStep):
 
 
 class TactileValidationProcessorStep(ObservationProcessorStep):
-    """Validate tactile sensor data format and dimensions"""
+    """Validate tactile sensor data format and 3D dimensions"""
 
-    def __init__(self, expected_shape=(16, 32)):
+    # Default changed to (Channels, Height, Width)
+    def __init__(self, expected_shape=(3, 40, 40)):
         """
         Args:
-            expected_shape: Expected shape of tactile sensor array (H, W)
+            expected_shape: Expected shape of tactile sensor array (C, H, W)
         """
         self.expected_shape = tuple(expected_shape)
 
@@ -88,19 +79,21 @@ class TactileValidationProcessorStep(ObservationProcessorStep):
             if isinstance(tactile_data, np.ndarray):
                 tactile_data = torch.from_numpy(tactile_data).float()
 
-            # Check dimensions
-            if tactile_data.dim() == 2:
-                # Keep as (H, W) for single sample
+            # Check dimensions (We explicitly require the channel dimension now)
+            if tactile_data.dim() == 3:
+                # (C, H, W) format - single sample
                 pass
-            elif tactile_data.dim() == 3:
-                # (B, H, W) format - keep as is
+            elif tactile_data.dim() == 4:
+                # (B, C, H, W) format - batched
                 pass
-            elif tactile_data.dim() == 4 and tactile_data.shape[1] == 1:
-                # Remove channel dimension if present: (B, 1, H, W) -> (B, H, W)
-                tactile_data = tactile_data.squeeze(1)
+            else:
+                raise ValueError(
+                    f"Expected 3D (C, H, W) or 4D (B, C, H, W) tensor for '{key}', "
+                    f"but got {tactile_data.dim()}D tensor."
+                )
 
-            # Validate shape (ignoring batch dimension)
-            actual_shape = tuple(tactile_data.shape[-2:])
+            # Validate shape (Check the last 3 dimensions to handle both batched and unbatched)
+            actual_shape = tuple(tactile_data.shape[-3:])
             if actual_shape != self.expected_shape:
                 raise ValueError(
                     f"Tactile data shape mismatch for '{key}'. Expected {self.expected_shape}, "
@@ -116,46 +109,3 @@ class TactileValidationProcessorStep(ObservationProcessorStep):
     ) -> dict[PipelineFeatureType, dict[str, PolicyFeature]]:
         """Features remain unchanged after validation"""
         return features
-
-
-class TactileTemporalFilterProcessorStep(ObservationProcessorStep):
-    """Apply temporal filtering to tactile sensor data to reduce noise"""
-
-    def __init__(self, alpha=0.2):
-        """
-        Args:
-            alpha: Exponential moving average coefficient (0 < alpha <= 1)
-                  Lower values = more smoothing
-        """
-        self.alpha = alpha
-        self._prev_tactile: dict[str, torch.Tensor] = {}
-
-    def observation(self, obs: dict[str, Any]) -> dict[str, Any]:
-        for key in list(obs.keys()):
-            if key != OBS_TACTILE and not key.startswith(OBS_TACTILE + "."):
-                continue
-            tactile_data = obs[key]
-
-            if isinstance(tactile_data, np.ndarray):
-                tactile_data = torch.from_numpy(tactile_data).float()
-
-            # Apply temporal filtering
-            if key in self._prev_tactile:
-                tactile_data = self.alpha * tactile_data + (1 - self.alpha) * self._prev_tactile[key]
-
-            # Store current values for next iteration
-            self._prev_tactile[key] = tactile_data.clone().detach()
-
-            obs[key] = tactile_data
-
-        return obs
-
-    def transform_features(
-        self, features: dict[PipelineFeatureType, dict[str, PolicyFeature]]
-    ) -> dict[PipelineFeatureType, dict[str, PolicyFeature]]:
-        """Features remain unchanged after temporal filtering"""
-        return features
-
-    def reset(self):
-        """Reset temporal filter state"""
-        self._prev_tactile.clear()

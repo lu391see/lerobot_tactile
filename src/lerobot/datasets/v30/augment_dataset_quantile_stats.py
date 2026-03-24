@@ -47,6 +47,7 @@ from tqdm import tqdm
 from lerobot.datasets.compute_stats import DEFAULT_QUANTILES, aggregate_stats, get_feature_stats
 from lerobot.datasets.lerobot_dataset import CODEBASE_VERSION, LeRobotDataset
 from lerobot.datasets.utils import write_stats
+from lerobot.utils.constants import OBS_TACTILE
 from lerobot.utils.utils import init_logging
 
 
@@ -110,6 +111,14 @@ def process_single_episode(dataset: LeRobotDataset, episode_idx: int) -> dict:
 
             axes_to_reduce = (0, 2, 3)
             keepdims = True
+        elif key.startswith(OBS_TACTILE):
+            if data.ndim != 4:
+                raise ValueError(
+                    f"Tactile feature '{key}' must have shape (T,C,H,W), got {data.shape}."
+                )
+
+            axes_to_reduce = (0, 2, 3)
+            keepdims = True
         else:
             axes_to_reduce = 0
             keepdims = data.ndim == 1
@@ -119,6 +128,10 @@ def process_single_episode(dataset: LeRobotDataset, episode_idx: int) -> dict:
         )
 
         if dataset.features[key]["dtype"] in ["image", "video"]:
+            ep_stats[key] = {
+                k: v if k == "count" else np.squeeze(v, axis=0) for k, v in ep_stats[key].items()
+            }
+        elif key.startswith(OBS_TACTILE):
             ep_stats[key] = {
                 k: v if k == "count" else np.squeeze(v, axis=0) for k, v in ep_stats[key].items()
             }

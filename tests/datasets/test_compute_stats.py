@@ -29,7 +29,7 @@ from lerobot.datasets.compute_stats import (
     sample_images,
     sample_indices,
 )
-from lerobot.utils.constants import OBS_IMAGE, OBS_STATE
+from lerobot.utils.constants import OBS_IMAGE, OBS_STATE, OBS_TACTILE
 
 
 def mock_load_image_as_numpy(path, dtype, channel_first):
@@ -159,6 +159,50 @@ def test_compute_episode_stats():
     assert stats[OBS_IMAGE]["count"].item() == 100
     assert stats[OBS_STATE]["count"].item() == 100
     assert stats[OBS_IMAGE]["mean"].shape == (3, 1, 1)
+
+
+def test_compute_episode_stats_tactile_channel_wise():
+    tactile = np.array(
+        [
+            [
+                [[1.0, 2.0], [3.0, 4.0]],
+                [[10.0, 20.0], [30.0, 40.0]],
+                [[-4.0, -3.0], [-2.0, -1.0]],
+            ],
+            [
+                [[5.0, 6.0], [7.0, 8.0]],
+                [[50.0, 60.0], [70.0, 80.0]],
+                [[0.0, 1.0], [2.0, 3.0]],
+            ],
+        ],
+        dtype=np.float32,
+    )
+    episode_data = {OBS_TACTILE: tactile}
+    features = {OBS_TACTILE: {"dtype": "float32"}}
+
+    stats = compute_episode_stats(episode_data, features)
+
+    expected_mean = tactile.mean(axis=(0, 2, 3)).reshape(3, 1, 1)
+    expected_min = tactile.min(axis=(0, 2, 3)).reshape(3, 1, 1)
+    expected_max = tactile.max(axis=(0, 2, 3)).reshape(3, 1, 1)
+    expected_std = tactile.std(axis=(0, 2, 3)).reshape(3, 1, 1)
+
+    assert stats[OBS_TACTILE]["mean"].shape == (3, 1, 1)
+    np.testing.assert_allclose(stats[OBS_TACTILE]["mean"], expected_mean)
+    np.testing.assert_allclose(stats[OBS_TACTILE]["min"], expected_min)
+    np.testing.assert_allclose(stats[OBS_TACTILE]["max"], expected_max)
+    np.testing.assert_allclose(stats[OBS_TACTILE]["std"], expected_std)
+    np.testing.assert_equal(stats[OBS_TACTILE]["count"], np.array([2]))
+
+
+def test_compute_episode_stats_tactile_requires_channel_dimension():
+    tactile = np.arange(2 * 3 * 4, dtype=np.float32).reshape(2, 3, 4)
+    tactile_key = f"{OBS_TACTILE}.left"
+    episode_data = {tactile_key: tactile}
+    features = {tactile_key: {"dtype": "float32"}}
+
+    with pytest.raises(ValueError, match=r"must have shape \(T,C,H,W\)"):
+        compute_episode_stats(episode_data, features)
 
 
 def test_assert_type_and_shape_valid():

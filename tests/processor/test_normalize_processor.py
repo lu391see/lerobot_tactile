@@ -29,7 +29,7 @@ from lerobot.processor import (
     hotswap_stats,
 )
 from lerobot.processor.converters import create_transition, identity_transition, to_tensor
-from lerobot.utils.constants import ACTION, OBS_IMAGE, OBS_STATE, OBS_STR
+from lerobot.utils.constants import ACTION, OBS_IMAGE, OBS_STATE, OBS_STR, OBS_TACTILE
 from lerobot.utils.utils import auto_select_torch_device
 
 
@@ -1692,6 +1692,43 @@ def test_roundtrip_normalize_unnormalize_non_identity():
 
     assert torch.allclose(out[TransitionKey.OBSERVATION][OBS_STATE], obs[OBS_STATE], atol=1e-5)
     assert torch.allclose(out[TransitionKey.ACTION], act, atol=1e-5)
+
+
+def test_tactile_mean_std_channelwise_normalization():
+    features = {OBS_TACTILE: PolicyFeature(FeatureType.TACTILE, (3, 2, 2))}
+    norm_map = {FeatureType.TACTILE: NormalizationMode.MEAN_STD}
+    stats = {
+        OBS_TACTILE: {
+            "mean": np.array([[[1.0]], [[2.0]], [[3.0]]]),
+            "std": np.array([[[2.0]], [[4.0]], [[8.0]]]),
+        }
+    }
+
+    normalizer = NormalizerProcessorStep(features=features, norm_map=norm_map, stats=stats)
+
+    tactile = torch.tensor(
+        [
+            [
+                [[3.0, 5.0], [7.0, 9.0]],
+                [[2.0, 6.0], [10.0, 14.0]],
+                [[3.0, 11.0], [19.0, 27.0]],
+            ],
+            [
+                [[1.0, 3.0], [5.0, 7.0]],
+                [[6.0, 10.0], [14.0, 18.0]],
+                [[11.0, 19.0], [27.0, 35.0]],
+            ],
+        ]
+    )
+    transition = create_transition(observation={OBS_TACTILE: tactile})
+
+    out = normalizer(transition)[TransitionKey.OBSERVATION][OBS_TACTILE]
+    expected = (tactile - torch.tensor([[[1.0]], [[2.0]], [[3.0]]])) / torch.tensor(
+        [[[2.0]], [[4.0]], [[8.0]]]
+    )
+
+    assert out.shape == tactile.shape
+    assert torch.allclose(out, expected)
 
 
 def test_dtype_adaptation_bfloat16_input_float32_normalizer():

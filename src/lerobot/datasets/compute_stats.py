@@ -16,6 +16,7 @@
 import numpy as np
 
 from lerobot.datasets.utils import load_image_as_numpy
+from lerobot.utils.constants import OBS_TACTILE
 
 DEFAULT_QUANTILES = [0.01, 0.10, 0.50, 0.90, 0.99]
 
@@ -483,6 +484,7 @@ def compute_episode_stats(
 
     Processes different data types appropriately:
     - Images/videos: Samples from paths, computes per-channel stats, normalizes to [0,1]
+    - Tactile arrays: Computes per-channel stats over time and spatial dimensions
     - Numerical arrays: Computes per-feature statistics
     - Strings: Skipped (no statistics computed)
 
@@ -499,6 +501,7 @@ def compute_episode_stats(
     Note:
         Image statistics are normalized to [0,1] range and have shape (3,1,1) for
         per-channel values when dtype is 'image' or 'video'.
+        Tactile statistics are computed channel-wise with shape (C,1,1).
     """
     if quantile_list is None:
         quantile_list = DEFAULT_QUANTILES
@@ -510,6 +513,15 @@ def compute_episode_stats(
 
         if features[key]["dtype"] in ["image", "video"]:
             ep_ft_array = sample_images(data)
+            axes_to_reduce = (0, 2, 3)
+            keepdims = True
+        elif key.startswith(OBS_TACTILE):
+            ep_ft_array = data
+            if ep_ft_array.ndim != 4:
+                raise ValueError(
+                    f"Tactile feature '{key}' must have shape (T,C,H,W), got {ep_ft_array.shape}."
+                )
+
             axes_to_reduce = (0, 2, 3)
             keepdims = True
         else:
@@ -524,6 +536,10 @@ def compute_episode_stats(
         if features[key]["dtype"] in ["image", "video"]:
             ep_stats[key] = {
                 k: v if k == "count" else np.squeeze(v / 255.0, axis=0) for k, v in ep_stats[key].items()
+            }
+        elif key.startswith(OBS_TACTILE):
+            ep_stats[key] = {
+                k: v if k == "count" else np.squeeze(v, axis=0) for k, v in ep_stats[key].items()
             }
 
     return ep_stats
