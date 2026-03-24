@@ -16,10 +16,7 @@ from lerobot.policies.act.configuration_act import ACTConfig
 from lerobot.scripts.lerobot_train import train
 
 WANDB_PROJECT = "insert-pinch-act-v3"
-TRAIN_NAME = "dummy"
-
-HF_LEROBOT_HOME = "/home/robot/ws/code_ws/isyhand_teleop/recordings/"
-HF_USER = "lmbsh"
+TRAIN_NAME = "dummy2"
 
 REPO_NAME = "insert-pinch-v3"
 SEED = 42
@@ -36,12 +33,13 @@ suffix_input_filter = [
 def main():
     """Run training with manually constructed config to bypass draccus issues."""
 
-    os.environ["HF_LEROBOT_HOME"] = HF_LEROBOT_HOME
-    os.environ["HF_USER"] = HF_USER
+    HF_LEROBOT_HOME = os.getenv("HF_LEROBOT_HOME", f"{Path.home()}/.cache/lerobot")
+    HF_USER = os.getenv("HF_USER", "lerobot")
 
-    output_directory = Path(f"outputs/train/{TRAIN_NAME}{SEED}")
+    output_directory = Path(f"{HF_LEROBOT_HOME}/outputs/train/{TRAIN_NAME}{SEED}")
+    dataset_directoy = f"{HF_LEROBOT_HOME}/data/{REPO_NAME}"
 
-    dataset_metadata = LeRobotDatasetMetadata(f"{HF_LEROBOT_HOME}/{REPO_NAME}")
+    dataset_metadata = LeRobotDatasetMetadata(dataset_directoy)
     features = dataset_to_policy_features(dataset_metadata.features)
     output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
     input_features = {key: ft for key, ft in features.items() if key not in output_features}
@@ -53,9 +51,7 @@ def main():
     print("output features:", list(output_features.keys()))
 
     # Use the local dataset instead of trying to download from hub
-    dataset_config = DatasetConfig(
-        repo_id=f"{HF_LEROBOT_HOME}/{REPO_NAME}",  # Absolute local path
-    )
+    dataset_config = DatasetConfig(repo_id=dataset_directoy)
 
     # Create ACT policy config
     policy_config = ACTConfig(
