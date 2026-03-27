@@ -91,7 +91,7 @@ class ACTConfig(PreTrainedConfig):
             "VISUAL": NormalizationMode.MEAN_STD,
             "STATE": NormalizationMode.MEAN_STD,
             "ACTION": NormalizationMode.MEAN_STD,
-            "TACTILE": NormalizationMode.IDENTITY,
+            "TACTILE": NormalizationMode.MIN_MAX,
         }
     )
 

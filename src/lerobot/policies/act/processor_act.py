@@ -65,7 +65,7 @@ def make_act_pre_post_processors(
     if config.use_tactile:
         input_steps.extend([
             TactileValidationProcessorStep(expected_shape=config.tactile_input_shape),
-            TactileNormalizationProcessorStep(force_max=0.4),
+            # TactileNormalizationProcessorStep(force_max=0.4),
         ])
     
     # Add common processing steps

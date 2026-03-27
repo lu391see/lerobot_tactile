@@ -17,18 +17,19 @@ from lerobot.policies.act.configuration_act import ACTConfig
 from lerobot.scripts.lerobot_train import train
 
 WANDB_PROJECT = "insert-pinch-act-v3"
-TRAIN_NAME = "wrist-black"
+TRAIN_NAME = "tactile_tokensMM"
 
 REPO_NAME = "insert-pinch-v3"
 SEED = 42
-BLACKOUT_CAMERAS = True
+BLACKOUT_CAMERAS = False
 
 suffix_input_filter = [
     "images.thumb-tip",
     "images.index-tip",
-    "tactile.thumb",
-    "tactile.index",
-    # "images.wrist",
+    # "tactile.thumb",
+    # "tactile.index",
+    "images.wrist",
+    "images.external",
 ]
 
 
@@ -91,7 +92,7 @@ def main():
         optimizer_lr=3e-5,
         optimizer_lr_backbone=3e-5,
         # drop_n_last_frames=0,  # HACK for pick-up -> in lerobot-train change EpisodeAwareSampler end_of_episode idx
-        use_tactile=False,
+        use_tactile=True,
         tactile_input_shape=(3, 40, 40),
         tactile_features=["observation.tactile.thumb", "observation.tactile.index"],
     )
