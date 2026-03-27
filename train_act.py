@@ -42,9 +42,13 @@ def main():
 
     output_directory = Path(f"{HF_LEROBOT_HOME}/outputs/train/{TRAIN_NAME}{SEED}")
     if SLURM_JOB_ID is not None:
-        dataset_directoy = f"/scratch/{SLURM_JOB_ID}/{REPO_NAME}"
+        scratch_dataset_directory = Path(f"/scratch/{SLURM_JOB_ID}/{REPO_NAME}")
+        if scratch_dataset_directory.exists():
+            dataset_directoy = str(scratch_dataset_directory)
+        else:
+            dataset_directoy = f"{HF_LEROBOT_HOME}/data/{REPO_NAME}"
     else:
-        dataset_directoy = f"{HF_LEROBOT_HOME}/data/{REPO_NAME}"
+        dataset_directoy = f"{HF_LEROBOT_HOME}/recordings/{REPO_NAME}"
 
     dataset_metadata = LeRobotDatasetMetadata(dataset_directoy)
     features = dataset_to_policy_features(dataset_metadata.features)
