@@ -36,10 +36,14 @@ def main():
     """Run training with manually constructed config to bypass draccus issues."""
 
     HF_LEROBOT_HOME = os.getenv("HF_LEROBOT_HOME", f"{Path.home()}/.cache/lerobot")
-    HF_USER = os.getenv("HF_USER", "lerobot")
+    HF_USER = os.getenv("HF_USER", "lmbsh")
+    SLURM_JOB_ID = os.getenv("SLURM_JOB_ID", None)
 
     output_directory = Path(f"{HF_LEROBOT_HOME}/outputs/train/{TRAIN_NAME}{SEED}")
-    dataset_directoy = f"{HF_LEROBOT_HOME}/data/{REPO_NAME}"
+    if SLURM_JOB_ID is not None:
+        dataset_directoy = f"/scratch/{SLURM_JOB_ID}/{REPO_NAME}"
+    else:
+        dataset_directoy = f"{HF_LEROBOT_HOME}/data/{REPO_NAME}"
 
     dataset_metadata = LeRobotDatasetMetadata(dataset_directoy)
     features = dataset_to_policy_features(dataset_metadata.features)
