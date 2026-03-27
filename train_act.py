@@ -8,18 +8,20 @@ from pathlib import Path
 import os
 
 from lerobot.configs.train import TrainPipelineConfig
-from lerobot.configs.default import DatasetConfig, WandBConfig
+from lerobot.configs.default import DatasetConfig, ImageTransformsConfig, WandBConfig
 from lerobot.configs.types import FeatureType
 from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
+from lerobot.datasets.transforms import ImageTransformConfig
 from lerobot.datasets.utils import dataset_to_policy_features
 from lerobot.policies.act.configuration_act import ACTConfig
 from lerobot.scripts.lerobot_train import train
 
 WANDB_PROJECT = "insert-pinch-act-v3"
-TRAIN_NAME = "dummy2"
+TRAIN_NAME = "wrist-black"
 
 REPO_NAME = "insert-pinch-v3"
 SEED = 42
+BLACKOUT_CAMERAS = True
 
 suffix_input_filter = [
     "images.thumb-tip",
@@ -50,8 +52,28 @@ def main():
     print("input features:", list(input_features.keys()))
     print("output features:", list(output_features.keys()))
 
+    if BLACKOUT_CAMERAS:
+        # Add camera blackout transform to input features
+        selected_tf = {
+            "camera_blackout": ImageTransformConfig(
+                weight=1.0,
+                type="ColorJitter",
+                kwargs={"brightness": (0.0, 0.0)},
+            )
+        }
+    else:
+        selected_tf = {}
+
     # Use the local dataset instead of trying to download from hub
-    dataset_config = DatasetConfig(repo_id=dataset_directoy)
+    dataset_config = DatasetConfig(
+        repo_id=f"{HF_LEROBOT_HOME}/{REPO_NAME}",  # Absolute local path
+        image_transforms=ImageTransformsConfig(
+            enable=True,
+            max_num_transforms=1,
+            random_order=False,
+            tfs=selected_tf,
+        ),
+    )
 
     # Create ACT policy config
     policy_config = ACTConfig(
@@ -65,7 +87,7 @@ def main():
         optimizer_lr=3e-5,
         optimizer_lr_backbone=3e-5,
         # drop_n_last_frames=0,  # HACK for pick-up -> in lerobot-train change EpisodeAwareSampler end_of_episode idx
-        use_tactile=True,
+        use_tactile=False,
         tactile_input_shape=(3, 40, 40),
         tactile_features=["observation.tactile.thumb", "observation.tactile.index"],
     )
@@ -73,9 +95,7 @@ def main():
     # NOTE lerobot did some delta_timestep setup here
 
     # Create wandb config
-    wandb_config = WandBConfig(
-        enable=True, disable_artifact=True, project=f"{WANDB_PROJECT}", run_id=f"{TRAIN_NAME}{SEED}"
-    )
+    wandb_config = WandBConfig(enable=True, disable_artifact=True, project=f"{WANDB_PROJECT}", run_id=f"{TRAIN_NAME}")
 
     # Create training pipeline config
     config = TrainPipelineConfig(
@@ -86,7 +106,6 @@ def main():
         job_name=f"{TRAIN_NAME}{SEED}",
         batch_size=32,  # TODO optimize this based on GPU memory
         steps=200_000,
-        eval_freq=10_000,
         save_freq=20_000,
         wandb=wandb_config,
         seed=SEED,
