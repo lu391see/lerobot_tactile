@@ -77,7 +77,7 @@ def main():
     dataset_config = DatasetConfig(
         repo_id=dataset_directoy,  # Absolute local path
         image_transforms=ImageTransformsConfig(
-            enable=True,
+            enable=bool(selected_tf),
             max_num_transforms=1,
             random_order=False,
             tfs=selected_tf,
