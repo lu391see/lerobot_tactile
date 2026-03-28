@@ -104,7 +104,7 @@ def main():
     # NOTE lerobot did some delta_timestep setup here
 
     # Create wandb config
-    wandb_config = WandBConfig(enable=True, disable_artifact=True, project=f"{WANDB_PROJECT}", run_id=f"{TRAIN_NAME}")
+    wandb_config = WandBConfig(enable=True, disable_artifact=True, project=f"{WANDB_PROJECT}")
 
     # Create training pipeline config
     config = TrainPipelineConfig(
