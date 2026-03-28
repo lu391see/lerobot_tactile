@@ -21,14 +21,14 @@ TRAIN_NAME = "tactile_tokensMM"
 
 REPO_NAME = "insert-pinch-v3"
 SEED = 42
-BLACKOUT_CAMERAS = False
+BLACKOUT_CAMERAS = True
 
 suffix_input_filter = [
     "images.thumb-tip",
     "images.index-tip",
-    # "tactile.thumb",
-    # "tactile.index",
-    "images.wrist",
+    "tactile.thumb",
+    "tactile.index",
+    # "images.wrist",
     "images.external",
 ]
 
@@ -48,7 +48,7 @@ def main():
         else:
             dataset_directoy = f"{HF_LEROBOT_HOME}/data/{REPO_NAME}"
     else:
-        dataset_directoy = f"{HF_LEROBOT_HOME}/recordings/{REPO_NAME}"
+        dataset_directoy = f"{HF_LEROBOT_HOME}/{REPO_NAME}"
 
     dataset_metadata = LeRobotDatasetMetadata(dataset_directoy)
     features = dataset_to_policy_features(dataset_metadata.features)
@@ -75,7 +75,7 @@ def main():
 
     # Use the local dataset instead of trying to download from hub
     dataset_config = DatasetConfig(
-        repo_id=f"{HF_LEROBOT_HOME}/{REPO_NAME}",  # Absolute local path
+        repo_id=dataset_directoy,  # Absolute local path
         image_transforms=ImageTransformsConfig(
             enable=True,
             max_num_transforms=1,
@@ -96,7 +96,7 @@ def main():
         optimizer_lr=3e-5,
         optimizer_lr_backbone=3e-5,
         # drop_n_last_frames=0,  # HACK for pick-up -> in lerobot-train change EpisodeAwareSampler end_of_episode idx
-        use_tactile=True,
+        use_tactile=False,
         tactile_input_shape=(3, 40, 40),
         tactile_features=["observation.tactile.thumb", "observation.tactile.index"],
     )
