@@ -18,15 +18,16 @@ from lerobot.policies.act.configuration_act import ACTConfig
 from lerobot.scripts.lerobot_train import train
 
 WANDB_PROJECT = "insert-pinch-act-v3"
-TRAIN_NAME = "wrist-black"
+TRAIN_NAME = "wrist+ttimg"
 
 REPO_NAME = "insert-pinch-v3"
 SEED = 42
-BLACKOUT_CAMERAS = True
+BLACKOUT_CAMERAS = False
+RESIZE_HW = (308, 410)  # (H, W) to map 640x480 -> 410x308
 
 suffix_input_filter = [
-    "images.thumb-tip",
-    "images.index-tip",
+    # "images.thumb-tip",
+    # "images.index-tip",
     "tactile.thumb",
     "tactile.index",
     # "images.wrist",
@@ -67,24 +68,27 @@ def main():
     print("input features:", list(input_features.keys()))
     print("output features:", list(output_features.keys()))
 
+    # Always resize images so all camera sources have identical spatial shape for ACT.
+    selected_tf = {
+        "resize": ImageTransformConfig(
+            weight=1.0,
+            type="Resize",
+            kwargs={"size": RESIZE_HW},
+        )
+    }
     if BLACKOUT_CAMERAS:
-        # Add camera blackout transform to input features
-        selected_tf = {
-            "camera_blackout": ImageTransformConfig(
-                weight=1.0,
-                type="ColorJitter",
-                kwargs={"brightness": (0.0, 0.0)},
-            )
-        }
-    else:
-        selected_tf = {}
+        selected_tf["camera_blackout"] = ImageTransformConfig(
+            weight=1.0,
+            type="ColorJitter",
+            kwargs={"brightness": (0.0, 0.0)},
+        )
 
     # Use the local dataset instead of trying to download from hub
     dataset_config = DatasetConfig(
         repo_id=dataset_directoy,  # Absolute local path
         image_transforms=ImageTransformsConfig(
-            enable=bool(selected_tf),
-            max_num_transforms=1,
+            enable=True,
+            max_num_transforms=len(selected_tf),
             random_order=False,
             tfs=selected_tf,
         ),
