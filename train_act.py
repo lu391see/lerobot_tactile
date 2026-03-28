@@ -6,6 +6,7 @@ Training script
 
 from pathlib import Path
 import os
+import argparse
 
 from lerobot.configs.train import TrainPipelineConfig
 from lerobot.configs.default import DatasetConfig, ImageTransformsConfig, WandBConfig
@@ -17,7 +18,7 @@ from lerobot.policies.act.configuration_act import ACTConfig
 from lerobot.scripts.lerobot_train import train
 
 WANDB_PROJECT = "insert-pinch-act-v3"
-TRAIN_NAME = "tactile_tokensMM"
+TRAIN_NAME = "wrist-black"
 
 REPO_NAME = "insert-pinch-v3"
 SEED = 42
@@ -36,11 +37,16 @@ suffix_input_filter = [
 def main():
     """Run training with manually constructed config to bypass draccus issues."""
 
+    parser = argparse.ArgumentParser(description="Train ACT policy")
+    parser.add_argument("--seed", type=int, default=SEED, help="Training seed")
+    args = parser.parse_args()
+    seed = args.seed
+
     HF_LEROBOT_HOME = os.getenv("HF_LEROBOT_HOME", f"{Path.home()}/.cache/lerobot")
     HF_USER = os.getenv("HF_USER", "lmbsh")
     SLURM_JOB_ID = os.getenv("SLURM_JOB_ID", None)
 
-    output_directory = Path(f"{HF_LEROBOT_HOME}/outputs/train/{TRAIN_NAME}{SEED}")
+    output_directory = Path(f"{HF_LEROBOT_HOME}/outputs/train/{TRAIN_NAME}{seed}")
     if SLURM_JOB_ID is not None:
         scratch_dataset_directory = Path(f"/scratch/{SLURM_JOB_ID}/{REPO_NAME}")
         if scratch_dataset_directory.exists():
@@ -112,12 +118,12 @@ def main():
         env=None,  # No environment for offline training
         policy=policy_config,
         output_dir=output_directory,
-        job_name=f"{TRAIN_NAME}{SEED}",
+        job_name=f"{TRAIN_NAME}{seed}",
         batch_size=32,  # TODO optimize this based on GPU memory
         steps=200_000,
         save_freq=20_000,
         wandb=wandb_config,
-        seed=SEED,
+        seed=seed,
     )
 
     print(f"Dataset: {config.dataset.repo_id}")
