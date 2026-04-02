@@ -334,6 +334,9 @@ class ACT(nn.Module):
         # # Tactile encoder for tactile feature extraction.
         if getattr(self.config, "use_tactile", False):
             self.tactile_backbone = nn.Conv2d(3, config.dim_model, kernel_size=4, stride=4)
+        
+        if getattr(self.config, "use_force_vec", False):
+            self.encoder_force_vec_input_proj = nn.Linear(6, config.dim_model)
 
         # Transformer (acts as VAE decoder when training with the variational objective).
         self.encoder = ACTEncoder(config)
@@ -367,6 +370,8 @@ class ACT(nn.Module):
             n_1d_tokens += 1
         if self.config.env_state_feature:
             n_1d_tokens += 1
+        if getattr(self.config, "use_force_vec", False):
+            n_1d_tokens += len(self.config.force_vec_features)
         self.encoder_1d_feature_pos_embed = nn.Embedding(n_1d_tokens, config.dim_model)
         if self.config.image_features:
             self.encoder_cam_feat_pos_embed = ACTSinusoidalPositionEmbedding2d(config.dim_model // 2)
@@ -418,6 +423,8 @@ class ACT(nn.Module):
             batch_size = batch[OBS_ENV_STATE].shape[0]
         elif getattr(self.config, "use_tactile", False) and self.config.tactile_features[0] in batch:
             batch_size = batch[self.config.tactile_features[0]].shape[0]
+        elif getattr(self.config, "use_force_vec", False) and self.config.force_vec_features[0] in batch:
+            batch_size = batch[self.config.force_vec_features[0]].shape[0]
         else:
             raise ValueError("Batch must contain at least one of: OBS_IMAGES, OBS_ENV_STATE, or tactile_features")
 
@@ -484,6 +491,20 @@ class ACT(nn.Module):
         # Environment state token.
         if self.config.env_state_feature:
             encoder_in_tokens.append(self.encoder_env_state_input_proj(batch[OBS_ENV_STATE]))
+
+        if getattr(self.config, "use_force_vec", False):
+            for i, force_key in enumerate(self.config.force_vec_features):
+                if force_key not in batch:
+                    raise ValueError(f"Force vector key {force_key} not found in batch.")
+                force_vec = batch[force_key]
+                if force_vec.dim() == 1:
+                    force_vec = force_vec.unsqueeze(0)
+                if force_vec.dim() != 2 or force_vec.shape[-1] != 6:
+                    raise ValueError(
+                        f"Force vector key {force_key} must have shape (B, 6) or (6,), got {tuple(force_vec.shape)}."
+                    )
+                force_vec_embed = self.encoder_force_vec_input_proj(force_vec) + self.force_sensor_ids[i]
+                encoder_in_tokens.append(force_vec_embed)
 
         if self.config.image_features:
             # For a list of images, the H and W may vary but H*W is constant.

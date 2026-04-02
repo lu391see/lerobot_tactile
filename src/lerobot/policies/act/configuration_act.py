@@ -126,6 +126,10 @@ class ACTConfig(PreTrainedConfig):
     # Named tactile feature keys, e.g. ["observation.tactile.index", "observation.tactile.thumb"].
     tactile_features: list[str] | None = None
 
+    use_force_vec: bool = False
+    # Named force vector feature keys, e.g. ["observation.force_vec.index", "observation.force_vec.thumb"].
+    force_vec_features: list[str] | None = None
+
     # Training and loss computation.
     dropout: float = 0.1
     kl_weight: float = 10.0
