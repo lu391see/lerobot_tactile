@@ -10,7 +10,7 @@ import argparse
 
 from lerobot.configs.train import TrainPipelineConfig
 from lerobot.configs.default import DatasetConfig, ImageTransformsConfig, WandBConfig
-from lerobot.configs.types import FeatureType
+from lerobot.configs.types import FeatureType, NormalizationMode
 from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
 from lerobot.datasets.transforms import ImageTransformConfig
 from lerobot.datasets.utils import dataset_to_policy_features
@@ -18,22 +18,32 @@ from lerobot.policies.act.configuration_act import ACTConfig
 from lerobot.scripts.lerobot_train import train
 
 WANDB_PROJECT = "insert-pinch-act-v3"
-TRAIN_NAME = "wrist+ttimg"
+TRAIN_NAME = "testbatch"
 
-REPO_NAME = "insert-pinch-v3"
+REPO_NAME = "insert-pinch-v3_forcevec"
 SEED = 42
 BLACKOUT_CAMERAS = False
+assert BLACKOUT_CAMERAS is False  # prevent accidents
+
 RESIZE_HW = (308, 410)  # (H, W) to map 640x480 -> 410x308
 
+# comment what you need
 suffix_input_filter = [
-    # "images.thumb-tip",
-    # "images.index-tip",
+    "images.thumb-tip",
+    "images.index-tip",
     "tactile.thumb",
     "tactile.index",
     # "images.wrist",
     "images.external",
+    # "force_vec.thumb",
+    # "force_vec.index",
 ]
 
+USE_TACTILE = False
+USE_FORCE_VEC = True
+assert not (USE_TACTILE and USE_FORCE_VEC), "Using both tactile and force vector inputs is not supported yet."
+FORCE_NORM = NormalizationMode.MEAN_STD
+TACTILE_NORM = NormalizationMode.QUANTILES
 
 def main():
     """Run training with manually constructed config to bypass draccus issues."""
@@ -106,12 +116,13 @@ def main():
         optimizer_lr=3e-5,
         optimizer_lr_backbone=3e-5,
         # drop_n_last_frames=0,  # HACK for pick-up -> in lerobot-train change EpisodeAwareSampler end_of_episode idx
-        use_tactile=False,
-        tactile_input_shape=(3, 40, 40),
+        use_tactile=USE_TACTILE,
         tactile_features=["observation.tactile.thumb", "observation.tactile.index"],
+        use_force_vec=USE_FORCE_VEC,
+        force_vec_features=["observation.force_vec.thumb", "observation.force_vec.index"],
     )
-
-    # NOTE lerobot did some delta_timestep setup here
+    policy_config.normalization_mapping["FORCE"] = FORCE_NORM
+    policy_config.normalization_mapping["TACTILE"] = TACTILE_NORM
 
     # Create wandb config
     wandb_config = WandBConfig(enable=True, disable_artifact=True, project=f"{WANDB_PROJECT}")
