@@ -44,7 +44,7 @@ from lerobot.datasets.backward_compatibility import (
     BackwardCompatibilityError,
     ForwardCompatibilityError,
 )
-from lerobot.utils.constants import ACTION, OBS_ENV_STATE, OBS_STR, OBS_TACTILE, OBS_STATE
+from lerobot.utils.constants import ACTION, OBS_ENV_STATE, OBS_FORCE_VEC, OBS_STR, OBS_TACTILE, OBS_STATE
 from lerobot.utils.utils import SuppressProgressBars, is_valid_numpy_dtype_string
 
 DEFAULT_CHUNK_SIZE = 1000  # Max number of files per chunk
@@ -636,12 +636,17 @@ def hw_to_dataset_features(
     joint_fts = {
         key: ftype
         for key, ftype in hw_features.items()
-        if ftype is float or (isinstance(ftype, PolicyFeature) and ftype.type not in [FeatureType.VISUAL, FeatureType.TACTILE])
+        if ftype is float or (isinstance(ftype, PolicyFeature) and ftype.type not in [FeatureType.VISUAL, FeatureType.TACTILE, FeatureType.FORCE])
     }
     tactile_fts = {
         key: ftype
         for key, ftype in hw_features.items()
         if isinstance(ftype, PolicyFeature) and ftype.type == FeatureType.TACTILE
+    }
+    force_fts = {
+        key: ftype
+        for key, ftype in hw_features.items()
+        if isinstance(ftype, PolicyFeature) and ftype.type == FeatureType.FORCE
     }
     cam_fts = {key: shape for key, shape in hw_features.items() if isinstance(shape, tuple)}
 
@@ -666,6 +671,18 @@ def hw_to_dataset_features(
             "dtype": "float32",
             "shape": ftype.shape,
             "names": ["xyz", "height", "width"],
+        }
+
+    # Handle force vectors as separate 1D arrays.
+    for key, ftype in force_fts.items():
+        if ftype.shape != (6,):
+            raise ValueError(
+                f"Force feature '{key}' must have shape (6,), got {ftype.shape}."
+            )
+        features[f"{prefix}.{key}"] = {
+            "dtype": "float32",
+            "shape": ftype.shape,
+            "names": ["px", "py", "pz", "fx", "fy", "fz"],
         }
 
     for key, shape in cam_fts.items():
@@ -701,7 +718,18 @@ def build_dataset_frame(
         if key in DEFAULT_FEATURES or not key.startswith(prefix):
             continue
         elif ft["dtype"] == "float32" and len(ft["shape"]) == 1:
-            frame[key] = np.array([values[name] for name in ft["names"]], dtype=np.float32)
+            # Preserve legacy behavior for core vector features.
+            if key in {ACTION, OBS_STATE}:
+                frame[key] = np.array([values[name] for name in ft["names"]], dtype=np.float32)
+                continue
+
+            feature_key = key.removeprefix(f"{prefix}.")
+            if feature_key in values:
+                frame[key] = np.asarray(values[feature_key], dtype=np.float32)
+            elif key in values:
+                frame[key] = np.asarray(values[key], dtype=np.float32)
+            else:
+                frame[key] = np.array([values[name] for name in ft["names"]], dtype=np.float32)
         elif ft["dtype"] == "float32" and len(ft["shape"]) == 3:
             # Handle 3D tactile data
             tactile_key = key.removeprefix(f"{prefix}.")
@@ -750,6 +778,9 @@ def dataset_to_policy_features(features: dict[str, dict]) -> dict[str, PolicyFea
         elif key.startswith(OBS_TACTILE):
             # Tactile features (2D arrays)
             type = FeatureType.TACTILE
+        elif key.startswith(OBS_FORCE_VEC):
+            # Force vector features (1D arrays)
+            type = FeatureType.FORCE
         elif key == OBS_STATE or (key.startswith(OBS_STR) and len(shape) == 1):
             # State features (1D arrays like motor positions)
             type = FeatureType.STATE

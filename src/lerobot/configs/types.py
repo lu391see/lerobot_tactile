@@ -25,6 +25,7 @@ class FeatureType(str, Enum):
     REWARD = "REWARD"
     LANGUAGE = "LANGUAGE"
     TACTILE = "TACTILE"
+    FORCE = "FORCE"
 
 
 class PipelineFeatureType(str, Enum):

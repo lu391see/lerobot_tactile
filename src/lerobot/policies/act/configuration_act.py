@@ -92,6 +92,7 @@ class ACTConfig(PreTrainedConfig):
             "STATE": NormalizationMode.MEAN_STD,
             "ACTION": NormalizationMode.MEAN_STD,
             "TACTILE": NormalizationMode.MIN_MAX,
+            "FORCE": NormalizationMode.MEAN_STD,
         }
     )
 
@@ -181,8 +182,10 @@ class ACTConfig(PreTrainedConfig):
         return None
 
     def validate_features(self) -> None:
-        if not self.image_features and not self.env_state_feature and not self.use_tactile:
-            raise ValueError("You must provide at least one of: images, environment state, or tactile sensor among the inputs.")
+        if not self.image_features and not self.env_state_feature and not self.use_tactile and not self.use_force_vec:
+            raise ValueError(
+                "You must provide at least one of: images, environment state, tactile sensor, or force vectors among the inputs."
+            )
 
     @property
     def observation_delta_indices(self) -> None:
