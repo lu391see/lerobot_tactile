@@ -503,7 +503,7 @@ class ACT(nn.Module):
                     raise ValueError(
                         f"Force vector key {force_key} must have shape (B, 6) or (6,), got {tuple(force_vec.shape)}."
                     )
-                force_vec_embed = self.encoder_force_vec_input_proj(force_vec) + self.force_sensor_ids[i]
+                force_vec_embed = self.encoder_force_vec_input_proj(force_vec)
                 encoder_in_tokens.append(force_vec_embed)
 
         if self.config.image_features:
