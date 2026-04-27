@@ -4,12 +4,12 @@ Training script
 """
 # adapted from lerobot examples and lefranx
 
-from pathlib import Path
-import os
 import argparse
+import os
+from pathlib import Path
 
-from lerobot.configs.train import TrainPipelineConfig
 from lerobot.configs.default import DatasetConfig, ImageTransformsConfig, WandBConfig
+from lerobot.configs.train import TrainPipelineConfig
 from lerobot.configs.types import FeatureType, NormalizationMode
 from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
 from lerobot.datasets.transforms import ImageTransformConfig
@@ -18,9 +18,9 @@ from lerobot.policies.act.configuration_act import ACTConfig
 from lerobot.scripts.lerobot_train import train
 
 WANDB_PROJECT = "insert-pinch-act-v3"
-TRAIN_NAME = "testbatch"
+TRAIN_NAME = "testfv"
 
-REPO_NAME = "insert-pinch-v3_forcevec"
+REPO_NAME = "insert-pinch-v3_forcevec2"
 SEED = 42
 BLACKOUT_CAMERAS = False
 assert BLACKOUT_CAMERAS is False  # prevent accidents
@@ -53,9 +53,9 @@ def main():
     args = parser.parse_args()
     seed = args.seed
 
-    HF_LEROBOT_HOME = os.getenv("HF_LEROBOT_HOME", f"{Path.home()}/.cache/lerobot")
-    HF_USER = os.getenv("HF_USER", "lmbsh")
-    SLURM_JOB_ID = os.getenv("SLURM_JOB_ID", None)
+    HF_LEROBOT_HOME = os.getenv("HF_LEROBOT_HOME", f"{Path.home()}/.cache/lerobot")  # noqa: N806
+    HF_USER = os.getenv("HF_USER", "lmbsh")  # noqa: N806
+    SLURM_JOB_ID = os.getenv("SLURM_JOB_ID", None)  # noqa: N806
 
     output_directory = Path(f"{HF_LEROBOT_HOME}/outputs/train/{TRAIN_NAME}{seed}")
     if SLURM_JOB_ID is not None:
